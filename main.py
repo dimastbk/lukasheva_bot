@@ -2,13 +2,15 @@ import logging
 import os
 
 from aiogram import Bot, Dispatcher, executor, types
+from aiogram.contrib.fsm_storage.memory import MemoryStorage
+from aiogram.utils.exceptions import Throttled
 from dotenv import load_dotenv
 
 import db
 from utils import parse_author
 
 load_dotenv()
-API_TOKEN = os.environ['API_TOKEN']
+API_TOKEN = os.environ["API_TOKEN"]
 
 
 # Configure logging
@@ -16,15 +18,16 @@ logging.basicConfig(level=logging.INFO)
 
 # Initialize bot and dispatcher
 bot = Bot(token=API_TOKEN)
-dp = Dispatcher(bot)
+storage = MemoryStorage()
+dp = Dispatcher(bot, storage=storage)
 
 
 async def update_result_message(chat_id: int):
     result_list = await db.get_result_list()
 
-    text = '*Результаты:*'
+    text = "*Результаты:*"
     for idx, item in enumerate(result_list):
-        text += f'\n{idx + 1:> 2}. {item[0]} - {item[1]}'
+        text += f"\n{idx + 1:> 2}. {item[0]} - {item[1]}"
 
     settings = await db.get_settings()
     if settings:
@@ -36,11 +39,16 @@ async def update_result_message(chat_id: int):
 
 
 def get_like_button(count: int | None = None):
-    text = f'❤️ {count}' if count else '❤️'
-    return types.InlineKeyboardMarkup().add(types.InlineKeyboardButton(text, callback_data='like'))
+    text = f"❤️ {count}" if count else "❤️"
+    return types.InlineKeyboardMarkup().add(types.InlineKeyboardButton(text, callback_data="like"))
 
 
-@dp.callback_query_handler(text='like')
+async def throttled(query: types.CallbackQuery, *args, **kwargs):
+    await query.answer("Не лайкайте слишком часто :)", show_alert=True)
+
+
+@dp.callback_query_handler(text="like")
+@dp.throttled(throttled, rate=1)
 async def callback(query: types.CallbackQuery):
     await query.answer()
 
@@ -55,9 +63,9 @@ async def callback(query: types.CallbackQuery):
 @dp.message_handler(content_types=types.ContentTypes.PHOTO)
 async def read_photo(message: types.Message):
 
-    text = f'Автор: [{message.from_user.full_name}](tg://user?id={message.from_user.id})'
+    text = f"Автор: [{message.from_user.full_name}](tg://user?id={message.from_user.id})"
     if message.caption:
-        text += f'\nСообщение: {message.caption}'
+        text += f"\nСообщение: {message.caption}"
 
     await bot.send_photo(
         message.chat.id,
@@ -69,5 +77,5 @@ async def read_photo(message: types.Message):
     await message.delete()
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     executor.start_polling(dp, skip_updates=True, on_startup=db.create_all)
